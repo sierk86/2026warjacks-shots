@@ -613,13 +613,37 @@
 let records = JSON.parse(localStorage.getItem('warjackShots') || '[]');
 let activeFilter = 'All';
 let syncing = false;
+let sheetTotal = 0;
 
-const SHEET_URL = 'https://docs.google.com/spreadsheets/d/15a1-1zWjfrx9TXWWpZUhsDm1EMpqOSHXqH-iNP1Vv6A/edit?usp=sharing';
-
-// Apps Script Web App URL — set this after deploying from Extensions → Apps Script
-const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxwm3DufS21rZmR85Fflja5z5k82EmYbVB0NADcSWrD1803y8XX7tc9yVABT-LplCnkfw/exec';
+const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkncat6oT1VZx3_APSF6kSpXS2FR3kjaJ-rVBAV6fU9J8cO48Y3eMeP0hNho7fPSls/exec';
 
 document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
+
+// ── LOAD TOTAL FROM SHEET ON STARTUP ──────────────────────────────────────
+async function loadSheetTotal() {
+  try {
+    const res = await fetch(APPS_SCRIPT_URL + '?t=' + Date.now());
+    const data = await res.json();
+    if (typeof data.total === 'number') {
+      sheetTotal = data.total;
+      updateCounter(sheetTotal);
+    }
+  } catch(e) {
+    // fall back to local
+    const localTotal = records.reduce((s, r) => s + r.shots, 0);
+    updateCounter(localTotal);
+  }
+}
+
+function updateCounter(total) {
+  const GOAL = 1500000;
+  const pct = Math.min((total / GOAL) * 100, 100);
+  document.getElementById('statTotal').textContent = total.toLocaleString();
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressGlow').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct.toFixed(4) + '% of 1,500,000 goal';
+  document.getElementById('scoreCard').style.display = 'block';
+}
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
 function save() { localStorage.setItem('warjackShots', JSON.stringify(records)); }
@@ -641,13 +665,6 @@ function toast(msg) {
   setTimeout(() => t.classList.remove('show'), 2800);
 }
 
-function setSyncStatus(state, msg) {
-  const dot = document.getElementById('syncDot');
-  const text = document.getElementById('syncMsg');
-  dot.className = 'sync-dot' + (['ok','syncing','err'].includes(state) ? ' '+state : '');
-  text.textContent = msg;
-}
-
 // ── ADD RECORD ────────────────────────────────────────────────────────────
 async function addRecord() {
   const name  = document.getElementById('playerName').value.trim();
@@ -661,13 +678,19 @@ async function addRecord() {
   const record = { id: Date.now(), name, date, shots, synced: false };
   records.unshift(record);
   save();
-  render();
+
+  // Optimistically update counter
+  sheetTotal += shots;
+  updateCounter(sheetTotal);
+  renderLog();
 
   document.getElementById('playerName').value = '';
   document.getElementById('shotCount').value = 1;
 
   toast('🏒 ' + shots.toLocaleString() + ' shot' + (shots > 1 ? 's' : '') + ' added for ' + name + '!');
   await pushToSheet(record);
+  // Reload from sheet to confirm accurate total
+  await loadSheetTotal();
 }
 
 // ── PUSH ROW TO SHEET ─────────────────────────────────────────────────────
@@ -675,7 +698,7 @@ async function pushToSheet(record) {
   if (!APPS_SCRIPT_URL) return;
   if (syncing) return;
   syncing = true;
-    try {
+  try {
     const payload = {
       player:    record.name,
       date:      record.date,
@@ -693,8 +716,9 @@ async function pushToSheet(record) {
     });
     record.synced = true;
     save();
-      } catch (e) {
-      }
+  } catch(e) {
+    console.error('Sheet write error:', e);
+  }
   syncing = false;
 }
 
@@ -702,7 +726,7 @@ async function pushToSheet(record) {
 function deleteRecord(id) {
   records = records.filter(r => r.id !== id);
   save();
-  render();
+  renderLog();
 }
 
 function clearAll() {
@@ -710,27 +734,16 @@ function clearAll() {
   records = [];
   save();
   activeFilter = 'All';
-  render();
+  renderLog();
 }
 
-// ── RENDER ────────────────────────────────────────────────────────────────
-function render() {
+// ── RENDER LOG ONLY ───────────────────────────────────────────────────────
+function renderLog() {
   const has = records.length > 0;
-  document.getElementById('scoreCard').style.display = 'block';
-  document.getElementById('logCard').style.display   = has ? 'block' : 'none';
+  document.getElementById('logCard').style.display = has ? 'block' : 'none';
   if (!has) return;
 
-  const total   = records.reduce((s, r) => s + r.shots, 0);
   const players = [...new Set(records.map(r => r.name))];
-  const GOAL = 1500000;
-  const pct = Math.min((total / GOAL) * 100, 100);
-  document.getElementById('statTotal').textContent = total.toLocaleString();
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('progressGlow').style.width = pct + '%';
-  document.getElementById('progressPct').textContent = pct.toFixed(4) + '% of 1,500,000 goal';
-
-
-
   const allNames = ['All', ...players];
   document.getElementById('filterRow').innerHTML = allNames.map(n =>
     `<button class="chip ${activeFilter === n ? 'active' : ''}" onclick="setFilter('${n}')">${n}</button>`
@@ -738,12 +751,12 @@ function render() {
 
   const filtered = activeFilter === 'All' ? records : records.filter(r => r.name === activeFilter);
   document.getElementById('logBody').innerHTML = filtered.length === 0
-    ? `<tr><td colspan="5"><div class="empty">NO RECORDS FOR ${activeFilter.toUpperCase()}</div></td></tr>`
+    ? `<tr><td colspan="4"><div class="empty">NO RECORDS FOR ${activeFilter.toUpperCase()}</div></td></tr>`
     : filtered.map(r => `
       <tr>
         <td><strong>${r.name}</strong></td>
         <td>${fmtDate(r.date)}</td>
-        <td class="td-shots">${r.shots}</td>
+        <td class="td-shots">${r.shots.toLocaleString()}</td>
         <td>
           <span title="${r.synced ? 'Saved to sheet' : 'Local only'}" style="font-size:0.7rem;margin-right:4px;">${r.synced ? '🟢' : '🔴'}</span>
           <button class="del-btn" onclick="deleteRecord(${r.id})" title="Delete">✕</button>
@@ -751,9 +764,11 @@ function render() {
       </tr>`).join('');
 }
 
-function setFilter(n) { activeFilter = n; render(); }
+function setFilter(n) { activeFilter = n; renderLog(); }
 
-render();
+// ── INIT ──────────────────────────────────────────────────────────────────
+loadSheetTotal();
+renderLog();
 </script>
 </body>
 </html>
