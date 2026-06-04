@@ -532,6 +532,21 @@
     .logo-wrap img { width: 80px; height: 80px; }
     .lb-bar-wrap { display: none; }
   }
+  #playerDropdown div {
+    padding: 10px 14px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--white);
+    cursor: pointer;
+    border-bottom: 1px solid rgba(200,153,42,0.1);
+    transition: background 0.12s;
+  }
+  #playerDropdown div:last-child { border-bottom: none; }
+  #playerDropdown div:hover { background: rgba(200,153,42,0.15); color: var(--gold-bright); }
+  #playerDropdown div.add-new { color: var(--gold); font-style: italic; }
+  #playerDropdown div.add-new:hover { background: rgba(200,153,42,0.2); }
+
 </style>
 </head>
 <body>
@@ -571,7 +586,15 @@
     <div class="form-grid">
       <div class="form-group full">
         <label>Player Name</label>
-        <input type="text" id="playerName" placeholder="e.g. Connor McDavid" autocomplete="off"/>
+        <div style="position:relative;">
+          <input type="text" id="playerName" placeholder="Select or type a new name…" autocomplete="off"
+            oninput="filterDropdown()" onfocus="showDropdown()" onblur="hideDropdown()" />
+          <div id="playerDropdown" style="
+            display:none; position:absolute; top:100%; left:0; right:0; z-index:100;
+            background:#000; border:1.5px solid rgba(200,153,42,0.5); border-top:none;
+            border-radius:0 0 8px 8px; max-height:200px; overflow-y:auto;">
+          </div>
+        </div>
       </div>
       <div class="form-group">
         <label>Date of Visit</label>
@@ -619,21 +642,84 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkncat6oT1VZx3
 
 document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
 
-// ── LOAD TOTAL FROM SHEET ON STARTUP ──────────────────────────────────────
-async function loadSheetTotal() {
+
+// ── PLAYER DROPDOWN ───────────────────────────────────────────────────────
+let allPlayers = [];
+let dropdownVisible = false;
+
+function getKnownPlayers() {
+  // Merge local records + sheet players
+  const local = [...new Set(records.map(r => r.name))];
+  const combined = [...new Set([...allPlayers, ...local])].sort();
+  return combined;
+}
+
+function showDropdown() {
+  renderDropdown(document.getElementById('playerName').value);
+  dropdownVisible = true;
+}
+
+function hideDropdown() {
+  // Delay so click on option registers first
+  setTimeout(() => {
+    document.getElementById('playerDropdown').style.display = 'none';
+    dropdownVisible = false;
+  }, 180);
+}
+
+function filterDropdown() {
+  renderDropdown(document.getElementById('playerName').value);
+}
+
+function renderDropdown(query) {
+  const dd = document.getElementById('playerDropdown');
+  const players = getKnownPlayers();
+  const q = query.trim().toLowerCase();
+  const filtered = q ? players.filter(p => p.toLowerCase().includes(q)) : players;
+
+  let html = '';
+  filtered.forEach(p => {
+    html += `<div onmousedown="selectPlayer('${p.replace(/'/g, "\'")}')">${p}</div>`;
+  });
+
+  // Show "Add new" option if typed name doesn't exactly match
+  const exactMatch = players.some(p => p.toLowerCase() === q);
+  if (q && !exactMatch) {
+    html += `<div class="add-new" onmousedown="selectPlayer('${query.trim().replace(/'/g, "\'")}')" >+ Add "${query.trim()}"</div>`;
+  }
+
+  if (html === '') {
+    html = '<div style="color:var(--muted);cursor:default;">Type a name to add</div>';
+  }
+
+  dd.innerHTML = html;
+  dd.style.display = 'block';
+}
+
+function selectPlayer(name) {
+  document.getElementById('playerName').value = name;
+  document.getElementById('playerDropdown').style.display = 'none';
+}
+
+// Populate allPlayers from sheet data on load
+async function loadSheetPlayers() {
   try {
     const res = await fetch(APPS_SCRIPT_URL + '?t=' + Date.now());
     const data = await res.json();
+    if (data.rows) {
+      allPlayers = [...new Set(data.rows.map(r => r.player).filter(Boolean))].sort();
+    }
     if (typeof data.total === 'number') {
       sheetTotal = data.total;
       updateCounter(sheetTotal);
     }
   } catch(e) {
-    // fall back to local
     const localTotal = records.reduce((s, r) => s + r.shots, 0);
     updateCounter(localTotal);
   }
 }
+
+
 
 function updateCounter(total) {
   const GOAL = 1500000;
@@ -676,6 +762,7 @@ async function addRecord() {
   if (!shots) { toast('⚠️ At least 1 shot required'); return; }
 
   const record = { id: Date.now(), name, date, shots, synced: false };
+  if (!allPlayers.includes(name)) { allPlayers.push(name); allPlayers.sort(); }
   records.unshift(record);
   save();
 
@@ -767,7 +854,7 @@ function renderLog() {
 function setFilter(n) { activeFilter = n; renderLog(); }
 
 // ── INIT ──────────────────────────────────────────────────────────────────
-loadSheetTotal();
+loadSheetPlayers();
 renderLog();
 </script>
 </body>
