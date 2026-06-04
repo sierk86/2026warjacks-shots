@@ -547,6 +547,73 @@
   #playerDropdown div.add-new { color: var(--gold); font-style: italic; }
   #playerDropdown div.add-new:hover { background: rgba(200,153,42,0.2); }
 
+  .lb-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    background: #000;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    margin-bottom: 8px;
+    animation: fadeSlide 0.3s ease;
+  }
+
+  @keyframes fadeSlide {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .lb-rank {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.5rem;
+    color: var(--muted);
+    width: 28px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .lb-rank.gold   { color: #FFD700; text-shadow: 0 0 10px rgba(255,215,0,0.5); }
+  .lb-rank.silver { color: #C0C0C0; }
+  .lb-rank.bronze { color: #CD7F32; }
+
+  .lb-jersey {
+    width: 38px; height: 38px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.1rem;
+    color: #000;
+    background: var(--gold);
+    flex-shrink: 0;
+  }
+
+  .lb-info { flex: 1; min-width: 0; }
+  .lb-name { font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .lb-bar-wrap { width: 100px; }
+  .lb-bar-track { height: 6px; background: rgba(200,153,42,0.15); border-radius: 3px; overflow: hidden; }
+  .lb-bar-fill  { height: 100%; background: linear-gradient(90deg, var(--gold), var(--gold-bright)); border-radius: 3px; transition: width 0.6s ease; }
+
+  .lb-shots {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2rem;
+    color: var(--gold-bright);
+    text-align: right;
+    min-width: 70px;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+
+  .lb-shots small {
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 0.68rem;
+    color: var(--muted);
+    display: block;
+    text-align: right;
+    letter-spacing: 0.05em;
+  }
+
 </style>
 </head>
 <body>
@@ -566,9 +633,8 @@
 
 <div class="main">
 
-
-
-  <div class="card" id="scoreCard" style="display:none">
+  <!-- TOTAL SHOTS + PROGRESS BAR -->
+  <div class="card" id="scoreCard">
     <div class="score-total-label">TOTAL SHOTS</div>
     <div class="score-total-num" id="statTotal">0</div>
     <div class="goal-label-row">
@@ -581,6 +647,7 @@
     <div class="progress-pct" id="progressPct">0% of goal</div>
   </div>
 
+  <!-- LOG FORM -->
   <div class="card">
     <div class="card-title"><div class="puck"></div> LOG YOUR DAILY SHOTS</div>
     <div class="form-grid">
@@ -608,23 +675,14 @@
           <button class="shot-btn" onclick="adj(1)">+</button>
         </div>
       </div>
-
     </div>
-    <button class="btn-submit" id="submitBtn" onclick="addRecord()">🏒 ADD TO WYH SHOT COUNT</button>
+    <button class="btn-submit" onclick="addRecord()">🏒 ADD TO WYH SHOT COUNT</button>
   </div>
 
-
-
-  <div class="card" id="logCard" style="display:none">
-    <div class="records-header">
-      <div class="card-title" style="margin-bottom:0"><div class="puck"></div> SHOT LOG</div>
-      <button class="btn-clear" onclick="clearAll()">Clear All</button>
-    </div>
-    <div class="filter-row" id="filterRow"></div>
-    <table class="log-table">
-      <thead><tr><th>Player</th><th>Date</th><th>Shots</th><th></th></tr></thead>
-      <tbody id="logBody"></tbody>
-    </table>
+  <!-- SHOT LEADERS -->
+  <div class="card" id="lbCard" style="display:none">
+    <div class="card-title"><div class="puck"></div> SHOT LEADERS</div>
+    <div id="leaderboard"></div>
   </div>
 
 </div>
@@ -634,80 +692,32 @@
 <script>
 // ── STATE ─────────────────────────────────────────────────────────────────
 let records = JSON.parse(localStorage.getItem('warjackShots') || '[]');
-let activeFilter = 'All';
-let syncing = false;
+let syncing  = false;
 let sheetTotal = 0;
+let allPlayers = [];
 
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzkncat6oT1VZx3_APSF6kSpXS2FR3kjaJ-rVBAV6fU9J8cO48Y3eMeP0hNho7fPSls/exec';
 
 document.getElementById('visitDate').value = new Date().toISOString().split('T')[0];
 
-
-// ── PLAYER DROPDOWN ───────────────────────────────────────────────────────
-let allPlayers = [];
-let dropdownVisible = false;
-
-function getKnownPlayers() {
-  // Merge local records + sheet players
-  const local = [...new Set(records.map(r => r.name))];
-  const combined = [...new Set([...allPlayers, ...local])].sort();
-  return combined;
+// ── COUNTER ───────────────────────────────────────────────────────────────
+function updateCounter(total) {
+  const GOAL = 1500000;
+  const pct  = Math.min((total / GOAL) * 100, 100);
+  document.getElementById('statTotal').textContent     = total.toLocaleString();
+  document.getElementById('progressFill').style.width  = pct + '%';
+  document.getElementById('progressGlow').style.width  = pct + '%';
+  document.getElementById('progressPct').textContent   = pct.toFixed(4) + '% of 1,500,000 goal';
 }
 
-function showDropdown() {
-  renderDropdown(document.getElementById('playerName').value);
-  dropdownVisible = true;
-}
-
-function hideDropdown() {
-  // Delay so click on option registers first
-  setTimeout(() => {
-    document.getElementById('playerDropdown').style.display = 'none';
-    dropdownVisible = false;
-  }, 180);
-}
-
-function filterDropdown() {
-  renderDropdown(document.getElementById('playerName').value);
-}
-
-function renderDropdown(query) {
-  const dd = document.getElementById('playerDropdown');
-  const players = getKnownPlayers();
-  const q = query.trim().toLowerCase();
-  const filtered = q ? players.filter(p => p.toLowerCase().includes(q)) : players;
-
-  let html = '';
-  filtered.forEach(p => {
-    html += `<div onmousedown="selectPlayer('${p.replace(/'/g, "\'")}')">${p}</div>`;
-  });
-
-  // Show "Add new" option if typed name doesn't exactly match
-  const exactMatch = players.some(p => p.toLowerCase() === q);
-  if (q && !exactMatch) {
-    html += `<div class="add-new" onmousedown="selectPlayer('${query.trim().replace(/'/g, "\'")}')" >+ Add "${query.trim()}"</div>`;
-  }
-
-  if (html === '') {
-    html = '<div style="color:var(--muted);cursor:default;">Type a name to add</div>';
-  }
-
-  dd.innerHTML = html;
-  dd.style.display = 'block';
-}
-
-function selectPlayer(name) {
-  document.getElementById('playerName').value = name;
-  document.getElementById('playerDropdown').style.display = 'none';
-}
-
-// Populate allPlayers from sheet data on load
-async function loadSheetPlayers() {
+// ── LOAD FROM SHEET ───────────────────────────────────────────────────────
+async function loadSheetData() {
   try {
-    const res = await fetch(APPS_SCRIPT_URL + '?t=' + Date.now());
+    const res  = await fetch(APPS_SCRIPT_URL + '?t=' + Date.now());
     const data = await res.json();
     if (data.rows) {
       allPlayers = [...new Set(data.rows.map(r => r.player).filter(Boolean))].sort();
+      renderLeaderboard(data.rows);
     }
     if (typeof data.total === 'number') {
       sheetTotal = data.total;
@@ -716,19 +726,41 @@ async function loadSheetPlayers() {
   } catch(e) {
     const localTotal = records.reduce((s, r) => s + r.shots, 0);
     updateCounter(localTotal);
+    renderLeaderboard(records.map(r => ({ player: r.name, shots: r.shots })));
   }
 }
 
+// ── LEADERBOARD ───────────────────────────────────────────────────────────
+function renderLeaderboard(rows) {
+  if (!rows || rows.length === 0) {
+    document.getElementById('lbCard').style.display = 'none';
+    return;
+  }
+  const totals = {};
+  rows.forEach(r => {
+    const name  = r.player || r.name;
+    const shots = parseInt(r.shots) || 0;
+    if (name) totals[name] = (totals[name] || 0) + shots;
+  });
+  const sorted = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  if (!sorted.length) { document.getElementById('lbCard').style.display = 'none'; return; }
 
+  document.getElementById('lbCard').style.display = 'block';
+  const maxShots   = sorted[0][1];
+  const rankClass  = ['gold', 'silver', 'bronze'];
 
-function updateCounter(total) {
-  const GOAL = 1500000;
-  const pct = Math.min((total / GOAL) * 100, 100);
-  document.getElementById('statTotal').textContent = total.toLocaleString();
-  document.getElementById('progressFill').style.width = pct + '%';
-  document.getElementById('progressGlow').style.width = pct + '%';
-  document.getElementById('progressPct').textContent = pct.toFixed(4) + '% of 1,500,000 goal';
-  document.getElementById('scoreCard').style.display = 'block';
+  document.getElementById('leaderboard').innerHTML = sorted.map(([name, shots], i) => `
+    <div class="lb-row">
+      <div class="lb-rank ${rankClass[i] || ''}">${i + 1}</div>
+      <div class="lb-jersey">${name[0].toUpperCase()}</div>
+      <div class="lb-info"><div class="lb-name">${name}</div></div>
+      <div class="lb-bar-wrap">
+        <div class="lb-bar-track">
+          <div class="lb-bar-fill" style="width:${(shots / maxShots * 100).toFixed(0)}%"></div>
+        </div>
+      </div>
+      <div class="lb-shots">${shots.toLocaleString()}<small>shots</small></div>
+    </div>`).join('');
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────
@@ -739,16 +771,46 @@ function adj(d) {
   el.value = Math.max(1, Math.min(50, parseInt(el.value || 1) + d));
 }
 
-function fmtDate(s) {
-  const [y,m,d] = s.split('-');
-  return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m-1]+' '+parseInt(d)+', '+y;
-}
-
 function toast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// ── PLAYER DROPDOWN ───────────────────────────────────────────────────────
+function getKnownPlayers() {
+  const local    = [...new Set(records.map(r => r.name))];
+  return [...new Set([...allPlayers, ...local])].sort();
+}
+
+function showDropdown()  { renderDropdown(document.getElementById('playerName').value); }
+function hideDropdown()  { setTimeout(() => { document.getElementById('playerDropdown').style.display = 'none'; }, 180); }
+function filterDropdown(){ renderDropdown(document.getElementById('playerName').value); }
+
+function renderDropdown(query) {
+  const dd      = document.getElementById('playerDropdown');
+  const players = getKnownPlayers();
+  const q       = query.trim().toLowerCase();
+  const filtered = q ? players.filter(p => p.toLowerCase().includes(q)) : players;
+
+  let html = filtered.map(p =>
+    `<div onmousedown="selectPlayer('${p.replace(/'/g,"\'")}')">${p}</div>`
+  ).join('');
+
+  const exact = players.some(p => p.toLowerCase() === q);
+  if (q && !exact) {
+    html += `<div class="add-new" onmousedown="selectPlayer('${query.trim().replace(/'/g,"\'")}')">+ Add "${query.trim()}"</div>`;
+  }
+  if (!html) html = '<div style="color:var(--muted);cursor:default;">Type a name to add</div>';
+
+  dd.innerHTML = html;
+  dd.style.display = 'block';
+}
+
+function selectPlayer(name) {
+  document.getElementById('playerName').value = name;
+  document.getElementById('playerDropdown').style.display = 'none';
 }
 
 // ── ADD RECORD ────────────────────────────────────────────────────────────
@@ -762,28 +824,27 @@ async function addRecord() {
   if (!shots) { toast('⚠️ At least 1 shot required'); return; }
 
   const record = { id: Date.now(), name, date, shots, synced: false };
-  if (!allPlayers.includes(name)) { allPlayers.push(name); allPlayers.sort(); }
   records.unshift(record);
   save();
 
-  // Optimistically update counter
+  if (!allPlayers.includes(name)) { allPlayers.push(name); allPlayers.sort(); }
+
+  // Optimistic update
   sheetTotal += shots;
   updateCounter(sheetTotal);
-  renderLog();
 
   document.getElementById('playerName').value = '';
-  document.getElementById('shotCount').value = 1;
+  document.getElementById('shotCount').value  = 1;
 
   toast('🏒 ' + shots.toLocaleString() + ' shot' + (shots > 1 ? 's' : '') + ' added for ' + name + '!');
+
   await pushToSheet(record);
-  // Reload from sheet to confirm accurate total
-  await loadSheetTotal();
+  await loadSheetData();
 }
 
-// ── PUSH ROW TO SHEET ─────────────────────────────────────────────────────
+// ── PUSH TO SHEET ─────────────────────────────────────────────────────────
 async function pushToSheet(record) {
-  if (!APPS_SCRIPT_URL) return;
-  if (syncing) return;
+  if (!APPS_SCRIPT_URL || syncing) return;
   syncing = true;
   try {
     const payload = {
@@ -797,65 +858,18 @@ async function pushToSheet(record) {
     };
     await fetch(APPS_SCRIPT_URL, {
       method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload)
+      mode:   'no-cors',
+      headers:{ 'Content-Type': 'text/plain' },
+      body:   JSON.stringify(payload)
     });
     record.synced = true;
     save();
-  } catch(e) {
-    console.error('Sheet write error:', e);
-  }
+  } catch(e) { console.error('Sheet write error:', e); }
   syncing = false;
 }
 
-// ── DELETE / CLEAR ────────────────────────────────────────────────────────
-function deleteRecord(id) {
-  records = records.filter(r => r.id !== id);
-  save();
-  renderLog();
-}
-
-function clearAll() {
-  if (!confirm('Delete all local records?')) return;
-  records = [];
-  save();
-  activeFilter = 'All';
-  renderLog();
-}
-
-// ── RENDER LOG ONLY ───────────────────────────────────────────────────────
-function renderLog() {
-  const has = records.length > 0;
-  document.getElementById('logCard').style.display = has ? 'block' : 'none';
-  if (!has) return;
-
-  const players = [...new Set(records.map(r => r.name))];
-  const allNames = ['All', ...players];
-  document.getElementById('filterRow').innerHTML = allNames.map(n =>
-    `<button class="chip ${activeFilter === n ? 'active' : ''}" onclick="setFilter('${n}')">${n}</button>`
-  ).join('');
-
-  const filtered = activeFilter === 'All' ? records : records.filter(r => r.name === activeFilter);
-  document.getElementById('logBody').innerHTML = filtered.length === 0
-    ? `<tr><td colspan="4"><div class="empty">NO RECORDS FOR ${activeFilter.toUpperCase()}</div></td></tr>`
-    : filtered.map(r => `
-      <tr>
-        <td><strong>${r.name}</strong></td>
-        <td>${fmtDate(r.date)}</td>
-        <td class="td-shots">${r.shots.toLocaleString()}</td>
-        <td>
-          <span title="${r.synced ? 'Saved to sheet' : 'Local only'}" style="font-size:0.7rem;margin-right:4px;">${r.synced ? '🟢' : '🔴'}</span>
-          <button class="del-btn" onclick="deleteRecord(${r.id})" title="Delete">✕</button>
-        </td>
-      </tr>`).join('');
-}
-
-function setFilter(n) { activeFilter = n; renderLog(); }
-
 // ── INIT ──────────────────────────────────────────────────────────────────
-loadSheetPlayers();
-renderLog();
+loadSheetData();
 </script>
 </body>
 </html>
